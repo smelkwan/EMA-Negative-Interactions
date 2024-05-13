@@ -1,0 +1,316 @@
+---
+title: "Negative Interaction Reliability"
+author: "Melanie Kwan"
+date: "2024-03-08"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+#Set up
+```{r eval=TRUE, echo=T, fig.show='hide', message=FALSE, warning=FALSE, results='hide'}
+list.of.packages <- c("psych", "zoo", "reshape2", "car","taRifx", "ggplot2", "nlme", "tidyr","dplyr", "readxl", "eeptools", "purrr", "plyr")
+library(psych)
+library(here)
+library(dplyr)
+library(nnet)
+library(kableExtra)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(broom)
+library(knitr)
+library(ggsci)
+library(haven)
+library(irr)
+library(readxl)
+
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+# Loading packages
+lapply(list.of.packages, require, character.only = TRUE)
+
+# Setting my plotting options
+my_opts <- list(theme_classic() + theme(axis.text=element_text(size=14), axis.title=element_text(size=15,face="bold"), legend.title=element_text(size=14,face="bold"), legend.text=element_text(size=13), strip.text.x = element_text(size = 14, face="bold")))
+############################################################
+```
+
+
+
+# Reliability
+```{r pressure, echo=FALSE}
+path_dir <- "/Users/melaniekwan/Desktop/Negative Interaction Project" #This is for Mel
+setwd(path_dir)
+df.neginter_mk <- read.csv("/Users/melaniekwan/Desktop/Negative Interaction Project/Negative Interaction Project - Mel 20240325.csv", na.strings = "")
+df.neginter_db <- read.csv("/Users/melaniekwan/Desktop/Negative Interaction Project/Negative Interaction Project - Derek 20240321.csv", na.strings = c("", "9999"))
+
+#Merge codes
+df.neginteract <- merge(df.neginter_mk, df.neginter_db[c("PID",	"SSID",	"DAY",	"SIG",	"SIGDATETIME",	"Duration..in.seconds.",	"StartDate",	"negInter_interText",	"Code")], by = c("SSID","DAY", "SIG", "PID", "SIGDATETIME", "negInter_interText", "Duration..in.seconds."), all.x = TRUE)
+# df.neginteract$Code <- ifelse(df.neginteract$Code == "[ ]", 999, df.neginteract$Code)
+# df.neginteract <- df.neginteract[df.neginteract$Code != 999, ]
+with(df.neginteract,agree(cbind(df.neginteract$Code.x, df.neginteract$Code.y)))
+with(df.neginteract,kappa2(cbind(df.neginteract$Code.x, df.neginteract$Code.y)))
+
+# Fixing the spaces (looks like Derek consistently put spaces)
+df.neginteract$Code.x <- gsub(" ", "", df.neginteract$Code.x)
+df.neginteract$Code.y <- gsub(" ", "", df.neginteract$Code.y)
+
+# Testing without zeros
+df.neginteract$Code.x.zero <- ifelse(df.neginteract$Code.x == "0", NA, df.neginteract$Code.x)
+df.neginteract$Code.y.zero <- ifelse(df.neginteract$Code.y == "0", NA, df.neginteract$Code.y)
+with(df.neginteract,agree(cbind(df.neginteract$Code.x.zero, df.neginteract$Code.y.zero)))
+with(df.neginteract,kappa2(cbind(df.neginteract$Code.x.zero, df.neginteract$Code.y.zero)))
+
+# Finding the discrepancies
+#View(df.neginteract[df.neginteract$Code.x != df.neginteract$Code.y,c("SSID", "DAY", "SIG", "PID", "negInter_interText","Code.x", "Code.y")])
+
+#Saving the discrepancies as a new df
+df.neginteract_discrep <- df.neginteract[df.neginteract$Code.x != df.neginteract$Code.y, c("SSID", "DAY", "SIG","PID", "negInter_interText", "Code.x", "Code.y")]
+df.neginteract_discrep <- df.neginteract_discrep[!is.na(df.neginteract_discrep$Code.x),]
+
+# Because we already have discrepancies, we need to only save the new ones
+df.neginteract_discrep_old <- read.csv("/Users/melaniekwan/Desktop/Negative Interaction Project/Coding Disrepancies - Round 1_UNRESOLVED.csv")
+
+# Create a new variable that uniquely identifies the row 
+df.neginteract_discrep_old <- unite(df.neginteract_discrep_old, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+df.neginteract_discrep <- unite(df.neginteract_discrep, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+
+# Keeping only the new ones
+df.neginteract_discrep <- df.neginteract_discrep[!df.neginteract_discrep$row_id %in% df.neginteract_discrep_old$row_id,] # USE THIS
+#View(df.neginteract_discrep)
+#write.csv(df.neginteract_discrep, file = "/Users/melaniekwan/Desktop/Negative Interaction Project/Coding Disrepancies_03242024.csv", row.names = FALSE)
+
+# Read in new dataset with resolved codes, merge it back in with the larger dataset
+path_dir <- "/Users/melaniekwan/Desktop/Negative Interaction Project" #This is for Mel
+setwd(path_dir)
+df.resolved <- read.csv("/Users/melaniekwan/Desktop/Negative Interaction Project/Coding Disrepancies_Resolved_20240321.csv")
+df.resolved_round2 <- read.csv("/Users/melaniekwan/Desktop/Negative Interaction Project/Coding Disrepancies_Resolved_20240327.csv")
+df.resolved$Code.Resolved <- df.resolved$Code.x.resolved.
+
+# Double checking that there is no overlap between them
+# First, create a unique ID 
+df.resolved <- unite(df.resolved, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+df.resolved_round2 <- unite(df.resolved_round2, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+df.resolved$row_id[df.resolved$row_id %in% df.resolved_round2$row_id]
+df.resolved_round2$row_id[df.resolved_round2$row_id %in% df.resolved$row_id]
+
+# Now we can just add the new rows
+df.resolved <- bind_rows(df.resolved,df.resolved_round2)
+
+# Bring in the recoded files
+df.neginteract.resolved <- merge(df.neginteract, df.resolved[c("SSID", "DAY", "SIG","PID", "negInter_interText", "Code.Resolved")], by = c("SSID","DAY", "SIG", "PID", "negInter_interText"), all = T)
+df.neginteract$Code.x != df.neginteract$Code.y
+df.neginteract.resolved$Code.Final <- ifelse(df.neginteract.resolved$Code.x != df.neginteract.resolved$Code.y, df.neginteract.resolved$Code.Resolved, 
+                                             ifelse(df.neginteract.resolved$Code.x == df.neginteract.resolved$Code.y, df.neginteract.resolved$Code.x, "ERROR!!!"))
+
+# View(df.neginteract.resolved[df.neginteract.resolved$Code.Final == "9",])
+#Create a final dataframe with all the codes 
+#write.csv(df.neginteract_FINAL, file = "/Users/melaniekwan/Desktop/Negative Interaction Project/NegDiscrep_FINAL.csv", row.names = FALSE)
+#write.csv(df.neginteract.resolved, file = "/Users/melaniekwan/Desktop/Negative Interaction Project/Final Resolved codes.csv", row.names = FALSE)
+
+
+#####
+# There is a new dataset with new entries that we want to code, so we need to save only the entries that have not been coded
+# Melanie's
+df.neginteract2 <- read.csv("/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/EMA/Negative_Interaction_Coding/Negative Interaction Project - MK Round 2 - Sheet1.csv")
+
+# First, create a unique ID 
+df.neginteract.resolved <- unite(df.neginteract.resolved, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+df.neginteract2 <- unite(df.neginteract2, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+
+df.neginteract.resolved$row_id[df.neginteract.resolved$row_id %in% df.neginteract2$row_id]
+# View(df.neginteract.resolved[df.neginteract.resolved$row_id %in% df.neginteract2$row_id,])
+View(df.neginteract2[!df.neginteract2$row_id %in% df.neginteract.resolved$row_id,])
+df.resolved_round2$row_id[df.resolved_round2$row_id %in% df.resolved$row_id]
+
+write.csv(df.neginteract2[!df.neginteract2$row_id %in% df.neginteract.resolved$row_id,],"/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/EMA/Negative_Interaction_Coding/Negative Interaction Project - MK Round 2 - Sheet1_noDuplicates_04182024.csv")
+
+# Derek's
+df.neginteract2_db <- read.csv("/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/EMA/Negative_Interaction_Coding/Negative Interaction Project - Derek_20240409_Round 2 - Sheet1.csv")
+
+# Create unique ID
+df.neginteract.resolved <- unite(df.neginteract.resolved, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+df.neginteract2_db <- unite(df.neginteract2_db, SSID, DAY, SIG,PID, sep = "_", remove = F, col = row_id)
+
+df.neginteract.resolved$row_id[df.neginteract.resolved$row_id %in% df.neginteract2_db$row_id]
+# View(df.neginteract.resolved[df.neginteract.resolved$row_id %in% df.neginteract2$row_id,])
+View(df.neginteract2_db[!df.neginteract2_db$row_id %in% df.neginteract.resolved$row_id,])
+df.resolved_round2_db$row_id[df.resolved_round2_db$row_id %in% df.resolved$row_id]
+
+write.csv(df.neginteract2_db[!df.neginteract2_db$row_id %in% df.neginteract.resolved$row_id,],"/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/EMA/Negative_Interaction_Coding/Negative Interaction Project - Derek_20240409_Round 2_noDuplicates_04182024.csv")
+```
+
+# Descriptives of Most Negative Interaction
+```{r}
+#path_dir <- "/Users/melaniekwan/Desktop/Negative Interaction Project"
+#setwd(path_dir)
+#df.negdescriptive <- read.csv("/Users/melaniekwan/Desktop/Negative Interaction Project/Negative Interaction Project - Mel 20240325.csv")
+df.neginteract.resolved$Code.Final <- gsub(",", ";", df.neginteract.resolved$Code.Final)
+df.neginteract.resolved$Code.Final <- gsub(" ", "", df.neginteract.resolved$Code.Final)
+df.neginteract.resolved.list <- sapply(df.neginteract.resolved$Code.Final, function(x) as.list(strsplit(x, ";")))
+names(df.neginteract.resolved.list) <- df.neginteract.resolved$PID
+library(plyr)
+df.neginteract.resolved <- data.frame(id = names(df.neginteract.resolved.list), rbind.fill(lapply(df.neginteract.resolved.list,function(y) as.data.frame(t(y),stringsAsFactors=FALSE))))
+detach("package:plyr", unload=TRUE)
+dfm.neginteract.resolved.code <- gather(df.neginteract.resolved, entry, value, -c("id"))
+table(dfm.neginteract.resolved.code$value)
+
+#Get Graph
+#prop_neginter_percentages <- prop.table(table(df.negdescriptive$Code)) *100 
+dfm.neginteract.resolved.code <- dfm.neginteract.resolved.code[!is.na(dfm.neginteract.resolved.code$value),]
+neginter_levels <- unique(dfm.neginteract.resolved.code$value)
+dfm.neginteract.resolved.code$value <- factor(dfm.neginteract.resolved.code$value,
+                                              levels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"),
+                                              labels = c("No Reason Mentioned", "Partner Troubles", "Work", "Commute", "Baby Fussing", "Family Troubles", "Financial Issues", "Health Issues", "Rumination", "The Study", "Other Interpersonal Relationships", "Errands/Chores", "Other"))
+
+# Recode the low endorsements
+dfm.neginteract.resolved.code$value[dfm.neginteract.resolved.code$value %in% c("The Study", "Financial Issues")] <- "Other"
+
+# Remove "No Reason Mentioned"
+dfm.neginteract.resolved.code <- dfm.neginteract.resolved.code[dfm.neginteract.resolved.code$value != "No Reason Mentioned",]
+
+neginter_levels<- unique(dfm.neginteract.resolved.code$value)
+colors <- c("#fee327", "#EDCD89", "#fdca54", "#f6a570", "#f1969b", "#f08ab1", "#c78dbd", "#927db6", "#5da0d7", "#00b3e1", "#50bcbf", "#65bda5", "#87bf54")
+
+
+# Get counts for each level and arrange in descending order
+level_counts <- dfm.neginteract.resolved.code %>%
+  group_by(value) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+# Reorder levels based on count
+dfm.neginteract.resolved.code$value <- factor(dfm.neginteract.resolved.code$value, levels = level_counts$value)
+
+# Plot
+ggplot(dfm.neginteract.resolved.code[!is.na(dfm.neginteract.resolved.code$value),], aes(x = value)) + 
+  geom_bar(aes(fill = value, y = (..count..))) +
+  geom_text(aes(label = paste(round((..count..)/sum(..count..)*100), "%")),
+            stat = "count", 
+            position = position_stack(vjust = 1.10)) +  
+  my_opts + 
+  labs(title = "What Were the Most Frequent Negative Interactions Experienced By Mothers During the Baby Diary Study?",
+       x = "Code", 
+       y = "Number of Interactions") +  
+  scale_fill_manual(breaks = levels(dfm.neginteract.resolved.code$value), 
+                    labels = levels(dfm.neginteract.resolved.code$value), 
+                    values = colors) + 
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 60, vjust = 0.5))
+```
+
+
+# Demographics 
+```{r}
+#path_link <- "/Users/melaniekwan/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/EMA/Negative_Interaction_Coding"
+#setwd(path_link)
+raw.data <- read.csv("/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/EMA/Negative_Interaction_Coding/dfm_negInter_02292024.csv")
+
+# Get unique ID's
+neginter.ids <- unique(raw.data$record_id)
+list(neginter.ids)
+describe(neginter.ids)
+
+# Get RedCap Files 
+path_dir <- ("/Users/melaniekwan/Library/CloudStorage/GoogleDrive-smkwan@usc.edu/.shortcut-targets-by-id/1YZiuWrGpvn0s5DiJmiP6QJk1xf30pnzy/BEAD Lab/Studies/STAR/Data/Questionnaires/Demographics")
+setwd(path_dir)
+under12 <- read.csv(paste0(path_dir, '/STARUnder12Mos-Demographics_DATA_2024-03-18_1634.csv'), na.strings = "", header = TRUE)
+plus12 <- read.csv(paste0(path_dir, '/STAR12mos-Demographic_DATA_2024-03-18_1212.csv'), na.strings = "", header = TRUE)
+
+# Get Demo's from RedCap
+neginter.ids.under12 <- c( "00018", "00020", "00023", "00026", "00029", "00025", "00031", "00033", "00036", "00041", "00040", "00038", "00034", "00037", "00050", "00046", "00052", "00058", "00032", "00056", "00059", "00062", "00066", "00065", "00054", "00072", "00068", "00078", "00080", "00061", "00079", "00073", "00082", "00085", "00087", "00098", "00097", "00069", "00092", "00100", "00094", "00102", "00101", "00104", "00106", "00108", "00001", "00004", "00005", "0099", "00075", "00110", "00111", "00112", "00115", "00117", "00007", "00120", "00113", "00125", "00124", "00009", "00128", "00121", "00123", "00130", "00137", "00136", "00139", "00011", "00141", "00012", "00145", "00129", "00146", "00014", "00147", "00148", "00151", "00150", "00152", "00135", "00154", "00149", "00157", "00158", "00160", "00161", "00163", "00162", "00165", "00164", "00166", "00153", "00016")
+
+neginter.ids.plus12 <- c( "00018", "00020", "00023", "00026", "00029", "00025", "00031", "00033", "00036", "00041", "00040", "00038", "00034", "00037", "00050", "00046", "00052", "00058", "00032", "00056", "00059", "00062", "00066", "00065", "00054", "00072", "00068", "00078", "00080", "00061", "00079", "00073", "00082", "00085", "00087", "00098", "00097", "00069", "00092", "00100", "00094", "00102", "00101", "00104", "00106", "00108", "00001", "00004", "00005", "0099", "00075", "00110", "00111", "00112", "00115", "00117", "00007", "00120", "00113", "00125", "00124", "00009", "00128", "00121", "00123", "00130", "00137", "00136", "00139", "00011", "00141", "00012", "00145", "00129", "00146", "00014", "00147", "00148", "00151", "00150", "00152", "00135", "00154", "00149", "00157", "00158", "00160", "00161", "00163", "00162", "00165", "00164", "00166", "00153", "00016")
+
+# Age
+neginter_under12 <- under12[under12$record_id %in% neginter.ids.under12 , ]
+neginter_plus12 <- plus12[plus12$record_id %in% neginter.ids.plus12, ]
+neginter_under12$age <- neginter_under12$demos_mom_age
+neginter_under12$age <- as.numeric(neginter_under12$demos_mom_age)
+describe(neginter_under12$age)
+neginter_plus12$age <- neginter_plus12$demos_mom_age
+neginter_plus12$age <- as.numeric(neginter_plus12$demos_mom_age)
+describe(neginter_plus12$age)
+
+agemerged <- c(neginter_under12$demos_mom_age, neginter_plus12$demos_mom_age)
+
+# Convert character values to numeric
+agemerged_numeric <- as.numeric(as.character(agemerged))
+
+# Check for NA values after conversion
+if(any(is.na(agemerged_numeric))) {
+  print("NA values found after conversion. Handling missing values.")
+  
+  # Option 1: Remove rows with NA values
+  # agemerged_numeric <- agemerged_numeric[!is.na(agemerged_numeric)]
+  
+  # Option 2: Replace NA values with a specific value, e.g., 0
+  agemerged_numeric[is.na(agemerged_numeric)] <- 0 }
+
+# Check if there are still any NA values after handling
+any(is.na(agemerged_numeric))
+describe(agemerged_numeric)
+#View(neginter_under12[c("record_id", "demos_mom_age")])
+#View(neginter_plus12[c("record_id", "demos_mom_age")])
+
+# Ethnicity
+neginter_under12$ethnicity <- ifelse(neginter_under12$demos_mom_ethnic == '1', 'Hispanic or Latinx', 'Not Hispanic or Latinx')
+neginter_plus12$ethnicity <- ifelse(neginter_plus12$demos_mom_ethnic == '1', 'Hispanic or Latinx', 'Not Hispanic or Latinx')
+ethnicitymerged <- c(neginter_plus12$ethnicity, neginter_plus12$ethnicity)
+table(ethnicitymerged)
+prop.table(table(ethnicitymerged)) * 100
+
+
+# SES 
+neginter_under12$ses <- neginter_under12%>% select(demos_fam_income)
+neginter_plus12$sesplus12<- neginter_plus12 %>% select(demos_fam_income)
+table(neginter_under12$demos_fam_income)
+describe(neginter_under12$demos_fam_income)
+describe(neginter_plus12$demos_fam_income)
+sesmerged <- c(neginter_under12$demos_fam_income, neginter_plus12$demos_fam_income)
+describe(sesmerged)
+
+# Race
+neginter_race_under12 <- neginter_under12 %>%
+  select(record_id, demos_mom_race___1, demos_mom_race___2, demos_mom_race___3, demos_mom_race___4, demos_mom_race___5, demos_mom_race___6, demos_mom_ethnic)
+
+neginter_race_plus12 <- neginter_plus12 %>%
+  select(record_id, demos_mom_race___1, demos_mom_race___2, demos_mom_race___3, demos_mom_race___4, demos_mom_race___5, demos_mom_race___6, demos_mom_ethnic)
+
+# Merging the data
+merged_parent_race <- merge(neginter_race_under12, neginter_race_plus12, 
+                            by.x = c("demos_mom_race___1", "demos_mom_race___2", "demos_mom_race___3", "demos_mom_race___4", "demos_mom_race___5", "demos_mom_race___6", "demos_mom_ethnic"),
+                            by.y = c("demos_mom_race___1", "demos_mom_race___2", "demos_mom_race___3", "demos_mom_race___4", "demos_mom_race___5", "demos_mom_race___6", "demos_mom_ethnic"))
+
+# Creating new columns for race categories
+merged_parent_race$nonhispanic_white <- ifelse(merged_parent_race$demos_mom_race___3==1 & merged_parent_race$demos_mom_ethnic==2, 1, 0)
+merged_parent_race$Hispanic <- ifelse(merged_parent_race$demos_mom_ethnic==1, 1, 0)
+merged_parent_race$AA <- ifelse(merged_parent_race$demos_mom_race___1==1, 1, 0)
+merged_parent_race$Asian <- ifelse(merged_parent_race$demos_mom_race___2==1, 1, 0)
+merged_parent_race$NativeIndian_AN <- ifelse(merged_parent_race$demos_mom_race___4==1, 1, 0)
+merged_parent_race$NativeHawaiian_OPI <- ifelse(merged_parent_race$demos_mom_race___5==1, 1, 0)
+merged_parent_race$Other <- ifelse(merged_parent_race$demos_mom_race___6==1, 1, 0)
+
+# Getting percentages
+percentages <- prop.table(table(merged_parent_race[c("nonhispanic_white", "Hispanic", "AA", "Asian", "NativeIndian_AN", "NativeHawaiian_OPI", "Other")]), margin = 2)
+
+# Printing percentages
+print(percentages)
+merged_parent_race$nonhispanic_white
+
+percent_nonhispanic_white <- mean(merged_parent_race$nonhispanic_white) * 100
+percent_AA <- mean(merged_parent_race$AA) * 100
+percent_Asian <- mean(merged_parent_race$Asian) * 100
+percent_NativeIndian_AN <- mean(merged_parent_race$NativeIndian_AN) * 100
+percent_NativeHawaiian_OPI <- mean(merged_parent_race$NativeHawaiian_OPI) * 100
+percent_Other <- mean(merged_parent_race$Other) * 100
+```
+
+
